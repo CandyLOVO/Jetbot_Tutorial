@@ -170,3 +170,5 @@ def define_markers() -> VisualizationMarkers:
     )
     return VisualizationMarkers(cfg=markers_cfg)
 
+# self.cfg.terrain.class_type(self.cfg.terrain) 在初始化地形对象时，会根据 num_envs 和 env_spacing 参数来生成每个环境的地形原点（env_origins）和分布。
+# 如果这两个参数没有提前设置为场景实际的环境数量和间距，地形对象就会按照默认值（通常为1或很小的数）来分配原点数组，导致后续访问（如 env_origins[env_ids]）时索引超出范围，出现越界错误。
