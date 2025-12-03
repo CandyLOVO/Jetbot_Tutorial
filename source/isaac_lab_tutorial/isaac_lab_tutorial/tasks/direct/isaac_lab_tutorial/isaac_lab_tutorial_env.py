@@ -28,7 +28,7 @@ class IsaacLabTutorialEnv(DirectRLEnv):
     def __init__(self, cfg: IsaacLabTutorialEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self._dof_idx, _ = self.robot.find_joints(self.cfg.dof_name)
+        self._dof_idx, _ = self.robot.find_joints(self.cfg.dof_name) #获取机器人左右轮关节的索引
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot_cfg)
@@ -94,31 +94,46 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         self._visualize_markers() #调用标记可视化函数，使箭头标记可见
 
     def _apply_action(self) -> None:
-        self.robot.set_joint_velocity_target(self.actions, joint_ids=self._dof_idx)
+        self.robot.set_joint_velocity_target(self.actions, joint_ids=self._dof_idx) #设置机器人左右轮关节的速度目标
 
     def _get_observations(self) -> dict:
-        # self.velocity = self.robot.data.root_com_vel_w #获取机器人质心线速度
+        # self.velocity = self.robot.data.root_com_vel_w #获取机器人质心线速度、角速度
         # self.forwards = math_utils.quat_apply(self.robot.data.root_link_quat_w, self.robot.data.FORWARD_VEC_B) #将机器人本体前进方向向量转换到世界坐标系
         # obs = torch.hstack((self.velocity, self.commands)) #将质心线速度和命令向量水平拼接作为观测值
         # observations = {"policy": obs} #将观测值作为键"policy"对应策略网络需要的观测值返回，critic定义评价模型观测值，“Actor-Critic”
         # return observations
 
         #尽可能缩小观测空间维度，减少模型参数量
-        self.velocity = self.robot.data.root_com_vel_w #机器人质心线速度，世界坐标系表示
-        self.forwards = math_utils.quat_apply(self.robot.data.root_link_quat_w, self.robot.data.FORWARD_VEC_B) #root_link_quat_w：局部坐标系到世界坐标系的四元数转换，FORWARD_VEC_B：机器人本体前进方向向量(1,0,0)局部坐标系表示
-        dot = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True) #机器人前进方向与命令方向的点积，衡量两者的一致性
-        cross = torch.cross(self.forwards, self.commands, dim=-1)[:,-1].reshape(-1,1) #机器人前进方向与命令方向的叉积在z轴方向的分量，衡量两者的偏离方向
-        # cross = torch.cross(self.commands, self.forwards, dim=-1)[:,-1].reshape(-1,1)
-        forward_speed = self.robot.data.root_com_lin_vel_b[:,0].reshape(-1,1) #机器人质心线速度在本体x轴方向的分量
-        obs = torch.hstack((dot, cross, forward_speed)) #机器人前进方向与命令方向的点积、机器人前进方向与命令方向的叉积在z轴方向的分量、机器人质心线速度在本体x轴方向的分量
+        # self.velocity = self.robot.data.root_com_vel_w #机器人质心线速度，世界坐标系表示
+        # self.forwards = math_utils.quat_apply(self.robot.data.root_link_quat_w, self.robot.data.FORWARD_VEC_B) #root_link_quat_w：局部坐标系到世界坐标系的四元数转换，FORWARD_VEC_B：机器人本体前进方向向量(1,0,0)局部坐标系表示
+        # dot = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True) #机器人前进方向与命令方向的点积，衡量两者的一致性
+        # cross = torch.cross(self.forwards, self.commands, dim=-1)[:,-1].reshape(-1,1) #机器人前进方向与命令方向的叉积在z轴方向的分量，衡量两者的偏离方向
+        # # cross = torch.cross(self.commands, self.forwards, dim=-1)[:,-1].reshape(-1,1)
+        # forward_speed = self.robot.data.root_com_lin_vel_b[:,0].reshape(-1,1) #机器人质心线速度在本体x轴方向的分量
+        # obs = torch.hstack((dot, cross, forward_speed)) #机器人前进方向与命令方向的点积、机器人前进方向与命令方向的叉积在z轴方向的分量、机器人质心线速度在本体x轴方向的分量
+        # observations = {"policy": obs}
+
+        #my_observation
+        self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度，机器人本体坐标系表示
+        self.ang_vel = self.robot.data.root_ang_vel_b
+        self.forwards = math_utils.quat_apply(self.robot.data.root_quat_w, self.robot.data.FORWARD_VEC_B) #将机器人本体前进方向向量转换到世界坐标系
+        obs = torch.hstack((self.lin_vel, self.ang_vel, self.commands)) #将质心线速度、角速度和命令向量水平拼接作为观测值
         observations = {"policy": obs}
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-        forward_reward = self.robot.data.root_com_lin_vel_b[:,0].reshape(-1,1) #获取机器人质心线速度在本体x轴方向的分量作为前进奖励
-        alignment_reward = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True) #计算机器人前进方向与命令方向的对齐奖励，点积越大表示越一致
-        alignment_reward = torch.exp(alignment_reward) #对齐奖励取指数，抑制退化解，较大的负值（机器人朝反方向）指数后接近0
-        total_reward = forward_reward * alignment_reward
+        # 方向对齐奖励：机器人当前前进方向与命令方向的点积
+        forward_dir = self.forwards[:, :2]  # [batch_size, 2]
+        command_dir = self.commands[:, :2]  # [batch_size, 2]
+        alignment = torch.sum(forward_dir * command_dir, dim=1, keepdim=True)  # [batch_size, 1]（使用 keepdim=True）
+        alignment_reward = torch.clamp(alignment, 0.0, 1.0)  # [batch_size, 1]
+        
+        # 前进速度奖励：机器人本体坐标系中沿 x 轴（前进方向）的速度
+        forward_vel = self.robot.data.root_lin_vel_b[:, 0:1]  # [batch_size, 1]（使用切片保持二维）
+        forward_reward = torch.clamp(forward_vel, 0.0, None)  # [batch_size, 1]
+        
+        # 综合奖励：方向对齐权重 0.5，前进速度权重 0.5
+        total_reward = 0.5 * alignment_reward + 0.5 * forward_reward  # [batch_size, 1]
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:

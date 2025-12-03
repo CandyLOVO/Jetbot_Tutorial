@@ -19,12 +19,13 @@ from isaaclab.sensors import RayCasterCfg, patterns
 @configclass
 class IsaacLabTutorialEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 2
-    episode_length_s = 5.0
+    decimation = 2 #控制仿真与控制频率的比值，decimation=2表示仿真频率为120Hz，控制频率为60Hz
+    episode_length_s = 20
     # - spaces definition
     action_space = 2
-    # observation_space = 9 #世界速度：线速度（vx, vy, vz)和角速度（wx, wy, wz）；命令向量（cx, cy, cz）
-    observation_space = 3 #机器人前进方向与命令方向的点积、机器人前进方向与命令方向的叉积在z轴方向的分量、机器人质心线速度在本体x轴方向的分量
+    # observation_space = 9 #世界速度：线速度（vx, vy, vz)和角速度（wx, wy, wz）；命令向量（cx, cy, cw）
+    # observation_space = 3 #机器人前进方向与命令方向的点积、机器人前进方向与命令方向的叉积在z轴方向的分量、机器人质心线速度在本体x轴方向的分量
+    observation_space = 9
     state_space = 0
 
     # simulation
