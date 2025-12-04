@@ -51,17 +51,24 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         self.visualization_markers = define_markers() #标记可视化对象
         
         #初始化环境变量
-        self.up_dir = torch.tensor([0.0, 0.0, 1.1]).cuda() #定义向上方向向量，略微偏离z轴以避免数值问题
+        self.up_dir = torch.tensor([0.0, 0.0, 1.1]).cuda() #定义向上方向向量（单位向量）
         self.yaws = torch.zeros((self.cfg.scene.num_envs, 1)).cuda() #初始化命令偏航角为0
-        self.commands = torch.randn((self.cfg.scene.num_envs, 3)).cuda() #初始命令向量为随机值，[num_envs, (x,y,z)]
-        self.commands[:,-1] = 0.0 #将命令向量的z分量设为0，确保在水平面内运动
-        self.commands = self.commands / torch.linalg.norm(self.commands, dim=-1, keepdim=True) #归一化命令向量
+        self.commands = torch.randn((self.cfg.scene.num_envs, 3)).cuda() #初始命令向量为随机值，[num_envs, (x,y,wz)]
+        # self.commands[:,-1] = 0.0 #将命令向量的z分量设为0，确保在水平面内运动
+        # self.commands = self.commands / torch.linalg.norm(self.commands, dim=-1, keepdim=True) #归一化命令向量
+        self._commands = torch.randn((self.cfg.scene.num_envs, 3)).cuda()
+        self._commands = self.commands.clone()
+        self._commands[:,-1] = 0.0
+        self._commands = self._commands / torch.linalg.norm(self._commands, dim=-1, keepdim=True)
 
         #计算初始偏航角yaw
         #横向为x，纵向为y，偏航角为0时与x轴正方向一致，[-pi, pi]，逆时针为正方向
-        ratio = self.commands[:,1]/(self.commands[:,0]+1e-8) #初始朝向y/x比值，计算反正切以获得初始偏航角
-        gzero = torch.where(self.commands > 0, True, False)
-        lzero = torch.where(self.commands < 0, True, False)
+        # ratio = self.commands[:,1]/(self.commands[:,0]+1e-8) #初始朝向y/x比值，计算反正切以获得初始偏航角
+        # gzero = torch.where(self.commands > 0, True, False)
+        # lzero = torch.where(self.commands < 0, True, False)
+        ratio = self._commands[:,1]/(self._commands[:,0]+1e-8) #初始朝向y/x比值，计算反正切以获得初始偏航角
+        gzero = torch.where(self._commands > 0, True, False)
+        lzero = torch.where(self._commands < 0, True, False)
         plus = lzero[:,0] * gzero[:,1] #第二象限 lzero=[TRue, False], gzero=[False, True], plus=True，其余象限为False
         minus = lzero[:,0] * lzero[:,1] #第三象限 lzero=[True, True], minus=True，其余象限为False
         offsets = torch.pi*plus - torch.pi*minus #第二象限加π，第三象限减π，其余象限不变
@@ -114,27 +121,24 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         # observations = {"policy": obs}
 
         #my_observation
-        self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度，机器人本体坐标系表示
-        self.ang_vel = self.robot.data.root_ang_vel_b
-        self.forwards = math_utils.quat_apply(self.robot.data.root_quat_w, self.robot.data.FORWARD_VEC_B) #将机器人本体前进方向向量转换到世界坐标系
+        # self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度（含方向、大小），机器人本体坐标系表示
+        self.lin_vel = self.robot.data.root_lin_vel_w
+        self.ang_vel = self.robot.data.root_ang_vel_w
+        # self.forwards = math_utils.quat_apply(self.robot.data.root_quat_w, self.robot.data.FORWARD_VEC_B) #将机器人本体前进方向向量（单位向量，仅方向）转换到世界坐标系
+        self.forwards = self.robot.data.root_lin_vel_w
         obs = torch.hstack((self.lin_vel, self.ang_vel, self.commands)) #将质心线速度、角速度和命令向量水平拼接作为观测值
         observations = {"policy": obs}
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-        # 方向对齐奖励：机器人当前前进方向与命令方向的点积
-        forward_dir = self.forwards[:, :2]  # [batch_size, 2]
-        command_dir = self.commands[:, :2]  # [batch_size, 2]
-        alignment = torch.sum(forward_dir * command_dir, dim=1, keepdim=True)  # [batch_size, 1]（使用 keepdim=True）
-        alignment_reward = torch.clamp(alignment, 0.0, 1.0)  # [batch_size, 1]
-        
-        # 前进速度奖励：机器人本体坐标系中沿 x 轴（前进方向）的速度
-        forward_vel = self.robot.data.root_lin_vel_b[:, 0:1]  # [batch_size, 1]（使用切片保持二维）
-        forward_reward = torch.clamp(forward_vel, 0.0, None)  # [batch_size, 1]
-        
-        # 综合奖励：方向对齐权重 0.5，前进速度权重 0.5
-        total_reward = 0.5 * alignment_reward + 0.5 * forward_reward  # [batch_size, 1]
-        return total_reward
+        cos_theta = torch.sum(self.forwards * self.commands, dim=-1) / torch.linalg.norm(self.forwards, dim=-1) / torch.linalg.norm(self.commands, dim=-1) #机器人前进方向与命令方向的点积的余弦值
+        forward_reward = torch.exp(cos_theta)
+        velocity_error = torch.sum(torch.square(self.commands[:,:2] - self.forwards[:,:2]), dim=1)
+        velocity_reward = torch.exp(-velocity_error)
+        angle_error = torch.square(self.commands[:,2] - self.ang_vel[:,2])
+        angle_reward = torch.exp(-angle_error)
+        rewards = forward_reward + velocity_reward + 0.5*angle_reward
+        return rewards
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
@@ -147,8 +151,12 @@ class IsaacLabTutorialEnv(DirectRLEnv):
 
         #命令重置
         self.commands[env_ids] = torch.randn((len(env_ids), 3)).cuda() #为重置的环境生成新的随机命令向量
-        self.commands[env_ids,-1] = 0.0 #将命令向量的z分量设为0，确保在水平面内运动
-        self.commands[env_ids] = self.commands[env_ids] / torch.linalg.norm(self.commands[env_ids], dim=-1, keepdim=True) #归一化命令向量
+        # self.commands[env_ids,-1] = 0.0 #将命令向量的z分量设为0，确保在水平面内运动
+        # self.commands[env_ids] = self.commands[env_ids] / torch.linalg.norm(self.commands[env_ids], dim=-1, keepdim=True) #归一化命令向量
+        self._commands = torch.randn((self.cfg.scene.num_envs, 3)).cuda()
+        self._commands = self.commands.clone()
+        self._commands[:,-1] = 0.0
+        self._commands = self._commands / torch.linalg.norm(self._commands, dim=-1, keepdim=True)
 
         #计算重置后命令的偏航角yaw
         ratio = self.commands[env_ids,1]/(self.commands[env_ids,0]+1e-8) #计算反正切以获得偏航角
