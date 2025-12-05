@@ -132,12 +132,12 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         norm_command = torch.linalg.norm(self.commands[:, :2], dim=-1) + epsilon
         cos_theta = torch.sum(self.forwards[:, :2] * self.commands[:, :2], dim=-1) / (norm_forward * norm_command) #机器人前进方向与命令方向的点积的余弦值
         cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
-        forward_reward = torch.exp(cos_theta)
+        forward_reward = torch.exp(cos_theta / 0.25)
         velocity_error = torch.sum(torch.square(self.commands[:, :2] - self.ang_vel[:, :2]), dim=1) #机器人质心线速度在x、y方向与命令向量在x、y方向的误差平方和
         velocity_reward = torch.exp(-velocity_error)
         # angle_error = torch.square(self.commands[:, 2] - self.ang_vel[:, 2]) #机器人角速度在z方向与命令向量在z方向的误差平方
         # angle_reward = torch.exp(-angle_error)
-        rewards = forward_reward + velocity_reward
+        rewards = forward_reward * velocity_reward
         return rewards
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
