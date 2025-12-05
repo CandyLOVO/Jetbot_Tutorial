@@ -128,7 +128,7 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         # cos_theta = torch.sum(self.forwards[:, :2] * self.commands[:, :2], dim=-1) #commands已归一化，[-1,1]，世界坐标系
         # forward_reward = (cos_theta + 1.0) / 2.0 #将cos_theta从[-1,1]映射到[0,1]作为前进奖励
 
-        max_vel = 2.0 #最大速度设为2m/s，不可以为0（作为分母）
+        max_vel = 5.0 #最大速度设为2m/s，不可以为0（作为分母）
         forward_velocity = torch.sum(self.robot.data.root_lin_vel_w[:, :2] * self.commands[:, :2], dim=-1)
         velocity_reward = torch.clamp(forward_velocity, 0.0, max_vel) #速度调整
         velocity_reward = velocity_reward / max_vel #将速度奖励归一化到[0,1]
