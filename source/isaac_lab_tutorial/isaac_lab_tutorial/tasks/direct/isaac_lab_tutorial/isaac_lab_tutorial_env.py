@@ -131,8 +131,8 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         # forward_reward = (cos_theta + 1.0) / 2.0 #将cos_theta从[-1,1]映射到[0,1]作为前进奖励
 
         forward_velocity = torch.sum(self.robot.data.root_lin_vel_w[:, :2] * self.commands[:, :2], dim=-1) #在命令方向的速度投影
-        velocity_reward = torch.clamp(forward_velocity, min=0.0)
-        velocity_reward = torch.tanh(velocity_reward)
+        velocity_reward = torch.clamp(forward_velocity, 0, 1.0)
+        # velocity_reward = torch.tanh(velocity_reward)
 
         # cmd_yaw = torch.atan2(self.commands[:,1], self.commands[:,0])
         # robot_yaw = torch.atan2(self.forwards[:,1], self.forwards[:,0])
@@ -146,7 +146,7 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         yaw_error = torch.atan2(cross, dot) #使用反正切函数计算偏航误差，范围[-π, π]
         yaw_reward = torch.exp(-3*torch.abs(yaw_error)).squeeze(-1)
 
-        rewards = yaw_reward * (velocity_reward+1)
+        rewards = yaw_reward * (8*velocity_reward+1.0)
         return rewards
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
