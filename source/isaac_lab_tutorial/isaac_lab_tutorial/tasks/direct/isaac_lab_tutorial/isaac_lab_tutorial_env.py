@@ -128,8 +128,8 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         # cos_theta = torch.sum(self.forwards[:, :2] * self.commands[:, :2], dim=-1) #commands已归一化，[-1,1]，世界坐标系
         # forward_reward = (cos_theta + 1.0) / 2.0 #将cos_theta从[-1,1]映射到[0,1]作为前进奖励
 
-        # forward_velocity = torch.sum(self.robot.data.root_lin_vel_w[:, :2] * self.commands[:, :2], dim=-1)
-        # velocity_reward = torch.clamp(forward_velocity, 0) #速度调整
+        forward_velocity = torch.sum(self.robot.data.root_lin_vel_w[:, :2] * self.commands[:, :2], dim=-1)
+        velocity_reward = torch.tanh(forward_velocity / 3) #速度调整
 
         # cmd_yaw = torch.atan2(self.commands[:,1], self.commands[:,0])
         # robot_yaw = torch.atan2(self.forwards[:,1], self.forwards[:,0])
@@ -141,9 +141,9 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         dot = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True)
         cross = torch.cross(self.forwards, self.commands, dim=-1)[:,-1].reshape(-1,1) 
         yaw_error = torch.atan2(cross, dot) #使用反正切函数计算偏航误差，范围[-π, π]
-        yaw_reward = torch.exp(-2*torch.abs(yaw_error))
+        yaw_reward = torch.exp(-2*torch.abs(yaw_error)).squeeze(-1)
 
-        rewards = yaw_reward #综合速度奖励和偏航奖励，作为最终奖励
+        rewards = yaw_reward + velocity_reward #综合速度奖励和偏航奖励，作为最终奖励
         return rewards
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
