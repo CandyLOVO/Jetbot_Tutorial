@@ -117,8 +117,8 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         # observations = {"policy": obs}
 
         #my_observation
-        # self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度（含方向、大小），机器人本体坐标系表示
-        self.lin_vel = self.robot.data.root_lin_vel_w #获取机器人质心线速度（含方向、大小），世界坐标系表示，不能作为self.forwards！！！！！！详情见飞书文档
+        self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度（含方向、大小），机器人本体坐标系表示
+        # self.lin_vel = self.robot.data.root_lin_vel_w #获取机器人质心线速度（含方向、大小），世界坐标系表示，不能作为self.forwards！！！！！！详情见飞书文档
         self.forwards = math_utils.quat_apply(self.robot.data.root_quat_w, self.robot.data.FORWARD_VEC_B) #将机器人本体前进方向向量（单位向量，仅方向）转换到世界坐标系
         dot = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True)
         cross = torch.cross(self.forwards, self.commands, dim=-1)[:,-1].reshape(-1,1) 
