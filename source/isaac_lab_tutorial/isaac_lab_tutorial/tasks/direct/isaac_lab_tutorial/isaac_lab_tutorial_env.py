@@ -118,9 +118,11 @@ class IsaacLabTutorialEnv(DirectRLEnv):
 
         #my_observation
         # self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度（含方向、大小），机器人本体坐标系表示
-        self.lin_vel = self.robot.data.root_lin_vel_b #获取机器人质心线速度（含方向、大小），世界坐标系表示，不能作为self.forwards！！！！！！详情见飞书文档
+        self.lin_vel = self.robot.data.root_lin_vel_w #获取机器人质心线速度（含方向、大小），世界坐标系表示，不能作为self.forwards！！！！！！详情见飞书文档
         self.forwards = math_utils.quat_apply(self.robot.data.root_quat_w, self.robot.data.FORWARD_VEC_B) #将机器人本体前进方向向量（单位向量，仅方向）转换到世界坐标系
-        obs = torch.hstack((self.lin_vel, self.forwards, self.commands)) #将质心线速度、角速度和命令向量水平拼接作为观测值
+        dot = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True)
+        cross = torch.cross(self.forwards, self.commands, dim=-1)[:,-1].reshape(-1,1) 
+        obs = torch.hstack((dot, cross, self.lin_vel))
         observations = {"policy": obs}
         return observations
 
@@ -128,8 +130,9 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         # cos_theta = torch.sum(self.forwards[:, :2] * self.commands[:, :2], dim=-1) #commands已归一化，[-1,1]，世界坐标系
         # forward_reward = (cos_theta + 1.0) / 2.0 #将cos_theta从[-1,1]映射到[0,1]作为前进奖励
 
-        forward_velocity = torch.sum(self.robot.data.root_lin_vel_w[:, :2] * self.commands[:, :2], dim=-1)
-        velocity_reward = torch.tanh(forward_velocity / 3) #速度调整
+        forward_velocity = torch.sum(self.robot.data.root_lin_vel_w[:, :2] * self.commands[:, :2], dim=-1) #在命令方向的速度投影
+        velocity_reward = torch.clamp(forward_velocity, min=0.0)
+        velocity_reward = torch.tanh(velocity_reward)
 
         # cmd_yaw = torch.atan2(self.commands[:,1], self.commands[:,0])
         # robot_yaw = torch.atan2(self.forwards[:,1], self.forwards[:,0])
@@ -141,9 +144,9 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         dot = torch.sum(self.forwards * self.commands, dim=-1, keepdim=True)
         cross = torch.cross(self.forwards, self.commands, dim=-1)[:,-1].reshape(-1,1) 
         yaw_error = torch.atan2(cross, dot) #使用反正切函数计算偏航误差，范围[-π, π]
-        yaw_reward = torch.exp(-2*torch.abs(yaw_error)).squeeze(-1)
+        yaw_reward = torch.exp(-3*torch.abs(yaw_error)).squeeze(-1)
 
-        rewards = yaw_reward + velocity_reward #综合速度奖励和偏航奖励，作为最终奖励
+        rewards = yaw_reward * velocity_reward
         return rewards
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
