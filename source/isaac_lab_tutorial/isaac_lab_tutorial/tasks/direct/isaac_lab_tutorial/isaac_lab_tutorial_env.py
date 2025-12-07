@@ -146,7 +146,7 @@ class IsaacLabTutorialEnv(DirectRLEnv):
         yaw_error = torch.atan2(cross, dot) #使用反正切函数计算偏航误差，范围[-π, π]
         yaw_reward = torch.exp(-3*torch.abs(yaw_error)).squeeze(-1)
 
-        rewards = yaw_reward * (8*velocity_reward+1.0)
+        rewards = yaw_reward * (9*velocity_reward+1.0)
         return rewards
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
